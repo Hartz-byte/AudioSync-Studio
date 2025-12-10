@@ -1,0 +1,2 @@
+venv
+models/Wav2Lip/checkpoints/wav2lip_gan.pth
