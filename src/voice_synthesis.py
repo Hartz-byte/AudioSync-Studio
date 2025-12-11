@@ -26,8 +26,8 @@ class VoiceSynthesizer:
             preload_models()
             print("  ✓ Models preloaded")
             return
-        except ImportError:
-            print("Note: Bark not available")
+        except ImportError as e:
+            print(f"Note: Bark not available ({e})")
         
         try:
             # Method 2: Try pyttsx3 as fallback (fast, local)
@@ -38,8 +38,8 @@ class VoiceSynthesizer:
             self.synthesizer_type = "pyttsx3"
             print("✓ pyttsx3 TTS loaded (local, fast)")
             return
-        except ImportError:
-            print("Note: pyttsx3 not available")
+        except ImportError as e:
+            print(f"Note: pyttsx3 not available ({e})")
         
         print("✗ No TTS engine available")
         self.generate_audio = None
@@ -85,6 +85,10 @@ class VoiceSynthesizer:
             print(f"✓ Generated audio shape: {audio_array.shape}")
             print(f"  Duration: {len(audio_array) / self.SAMPLE_RATE:.2f}s")
             
+            # Trim Leading Silence automatically
+            audio_array = self._trim_silence(audio_array)
+            print(f"  ✓ Trimmed Duration: {len(audio_array) / self.SAMPLE_RATE:.2f}s")
+            
             if output_path:
                 import scipy.io.wavfile as wavfile
                 # Normalize audio
@@ -98,6 +102,22 @@ class VoiceSynthesizer:
         except Exception as e:
             print(f"✗ Bark generation error: {e}")
             return None
+            
+    def _trim_silence(self, audio, threshold=0.05):
+        """Trim silence from beginning of audio array"""
+        try:
+            energy = np.abs(audio)
+            # Find first index where energy > threshold
+            start_idx = np.argmax(energy > threshold)
+            
+            # If start_idx is 0 but energy[0] is small, check if it found nothing (all False)
+            if start_idx == 0 and energy[0] < threshold:
+                # All silent?
+                return audio
+                
+            return audio[start_idx:]
+        except Exception:
+            return audio
     
     def _generate_pyttsx3(self, text, output_path=None):
         """Generate speech using pyttsx3"""

@@ -77,16 +77,21 @@ class Wav2LipProcessor:
         """
         # Try to use CUDA for face detection if available, but with small batch
         # to avoid OOM on consumer GPUs. 
-        # det_device = str(self.device).split(':')[0]
-        # Force CPU for face detection as CUDA is hanging on Windows
-        det_device = 'cpu'
+        if torch.cuda.is_available():
+            det_device = 'cuda'
+            # Disable cudnn benchmark to prevent hangs on some Windows setups
+            torch.backends.cudnn.benchmark = False
+            torch.backends.cudnn.deterministic = True
+        else:
+            det_device = 'cpu'
+            
         print(f"  Initializing Face Detector ({det_device})...")
         detector = face_detection.FaceAlignment(face_detection.LandmarksType._2D, 
                                               flip_input=False, device=det_device)
 
         print(f"  Detecting faces in {len(images)} frames...")
-        # Use smaller batch size for face detection to be safe
-        batch_size = 4
+        # Use batch size 1 for maximum safety on Windows/CUDA
+        batch_size = 1
         
         while 1:
             predictions = []
@@ -96,11 +101,11 @@ class Wav2LipProcessor:
                     predictions.extend(detector.get_detections_for_batch(np.array(images[i:i + batch_size])))
             except RuntimeError as e:
                 # Handle OOM
-                if batch_size == 1: 
-                    print("Warn: OOM even at batch_size=1. Switching to CPU for detection.")
+                if 'cuda' in det_device and batch_size == 1: 
+                    print("Warn: CUDA failed even at batch_size=1. Switching to CPU.")
+                    det_device = 'cpu'
                     detector = face_detection.FaceAlignment(face_detection.LandmarksType._2D, 
                                                           flip_input=False, device='cpu')
-                    batch_size = 4 
                     continue
                     
                 batch_size //= 2
@@ -150,8 +155,14 @@ class Wav2LipProcessor:
             # Extract face
             face = frame_to_save[y1:y2, x1:x2]
             
-            # Resize
-            face = cv2.resize(face, (self.img_size, self.img_size))
+            # Resize with high quality
+            face = cv2.resize(face, (self.img_size, self.img_size), interpolation=cv2.INTER_CUBIC)
+            
+            # Silence Handling: If mel chunk is quiet, force it to minimum value (closed mouth)
+            # Wav2Lip normalized range is [-4, 4]. Silence is -4.
+            # Using threshold -3.5 to catch near-silence. 
+            if np.mean(m) < -3.5:
+                m[:] = -10.0 # Force deep silence
                 
             img_batch.append(face)
             mel_batch.append(m)
@@ -184,19 +195,68 @@ class Wav2LipProcessor:
 
             yield img_batch, mel_batch, frame_batch, coords_batch
 
+    def _linear_color_transfer(self, target_img, source_img):
+        """
+        Match the color distribution of the target image to the source image
+        using Reinhard's method (Mean/Std transfer).
+        target_img: The generated mouth (to be corrected), BGR, uint8
+        source_img: The original face patch (reference), BGR, uint8
+        """
+        # Convert to LAB color space
+        target_lab = cv2.cvtColor(target_img, cv2.COLOR_BGR2LAB).astype("float32")
+        source_lab = cv2.cvtColor(source_img, cv2.COLOR_BGR2LAB).astype("float32")
+        
+        # Calculate stats
+        t_mean, t_std = np.mean(target_lab, axis=(0,1)), np.std(target_lab, axis=(0,1))
+        s_mean, s_std = np.mean(source_lab, axis=(0,1)), np.std(source_lab, axis=(0,1))
+        
+        # Avoid division by zero
+        t_std = np.clip(t_std, 1e-5, None)
+        s_std = np.clip(s_std, 1e-5, None)
+        
+        # Transfer
+        # (Target - Mean) * (Std_Source / Std_Target) + Mean_Source
+        target_lab = (target_lab - t_mean) * (s_std / t_std) + s_mean
+        
+        # Clip and convert back
+        target_lab = np.clip(target_lab, 0, 255).astype("uint8")
+        return cv2.cvtColor(target_lab, cv2.COLOR_LAB2BGR)
+
     def process_video(self, video_path, audio_path, output_path):
         print(f"\n🎬 AudioSync Studio - Corrected Processing Pipeline")
         print(f"   Video: {video_path}")
         print(f"   Audio: {audio_path}")
         
-        # 1. Load Video
+        # 1. Load Video & Convert to 25FPS (Standard for Wav2Lip)
         if not os.path.isfile(video_path):
              print(f"Error: Video file not found: {video_path}")
              return False
+
+        # Debug GPU
+        print(f"  Debug: torch.cuda.is_available() = {torch.cuda.is_available()}")
+        if torch.cuda.is_available():
+            print(f"  Debug: torch.version.cuda = {torch.version.cuda}")
+            print(f"  Debug: Current Device = {torch.cuda.current_device()}")
+            print(f"  Debug: Device Name = {torch.cuda.get_device_name(0)}")
+        else:
+            print("  Warn: Running on CPU. This will be slow.")
+
+        print("  Converting video to 25fps for accurate sync...")
+        temp_25fps = str(output_path).replace('.mp4', '_25fps_input.mp4')
+        cmd_fps = [
+            'ffmpeg', '-y', 
+            '-i', str(video_path), 
+            '-r', '25', 
+            temp_25fps
+        ]
+        subprocess.run(cmd_fps, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        
+        # Use the 25fps video for processing
+        video_read_path = temp_25fps
              
-        video_stream = cv2.VideoCapture(str(video_path))
+        video_stream = cv2.VideoCapture(video_read_path)
         fps = video_stream.get(cv2.CAP_PROP_FPS)
-        print("  Reading video frames...")
+        print(f"  Reading video frames from {video_read_path}...")
         
         full_frames = []
         while 1:
@@ -258,10 +318,12 @@ class Wav2LipProcessor:
         # Pre-compute mask for soft blending
         mask_template = np.zeros((self.img_size, self.img_size), dtype=np.float32)
         # Create a soft circle/oval mask
-        center = (self.img_size // 2, self.img_size // 2 + 8) # slightly lower for mouth
-        cv2.ellipse(mask_template, center, (self.img_size // 2 - 8, self.img_size // 3), 0, 0, 360, 1, -1)
-        # Blur the mask to create soft edge
-        mask_template = cv2.GaussianBlur(mask_template, (21, 21), 0)
+        # Widen the mask slightly and reduce blur to avoid ghosting
+        # Radius: (44, 40). Center shifted down by 8.
+        center = (self.img_size // 2, self.img_size // 2 + 8) 
+        cv2.ellipse(mask_template, center, (self.img_size // 2 - 4, self.img_size // 2 - 8), 0, 0, 360, 1, -1)
+        # Blur the mask to create soft edge (Sharpened to 7x7 from 15x15)
+        mask_template = cv2.GaussianBlur(mask_template, (7, 7), 0)
         # Reshape for broadcasting: (H, W, 1)
         mask_template = mask_template[..., np.newaxis]
 
@@ -279,20 +341,26 @@ class Wav2LipProcessor:
                 x1, y1, x2, y2 = c
                 try:
                     # Resize prediction to match face rect
-                    p_resized = cv2.resize(p.astype(np.uint8), (x2 - x1, y2 - y1))
+                    p_resized = cv2.resize(p.astype(np.uint8), (x2 - x1, y2 - y1), interpolation=cv2.INTER_CUBIC)
                     
                     # Resize masking template to match face rect
-                    mask_resized = cv2.resize(mask_template, (x2 - x1, y2 - y1))
+                    mask_resized = cv2.resize(mask_template, (x2 - x1, y2 - y1), interpolation=cv2.INTER_CUBIC)
                     
                     if len(mask_resized.shape) == 2:
                         mask_resized = mask_resized[..., np.newaxis] 
 
                     # Original face region
-                    original_face_region = f[y1:y2, x1:x2].astype(np.float32)
-                    p_resized_float = p_resized.astype(np.float32)
+                    original_face_region = f[y1:y2, x1:x2].astype(np.uint8)
+                    
+                    # Color Transfer: Match prediction to original face skin tone
+                    # This prevents the "grayish patch" look
+                    p_corrected = self._linear_color_transfer(p_resized, original_face_region)
+                    
+                    p_corrected_float = p_corrected.astype(np.float32)
+                    original_float = original_face_region.astype(np.float32)
                     
                     # Soft Blending: alpha * pred + (1-alpha) * original
-                    blended = mask_resized * p_resized_float + (1.0 - mask_resized) * original_face_region
+                    blended = mask_resized * p_corrected_float + (1.0 - mask_resized) * original_float
                     
                     f[y1:y2, x1:x2] = blended.astype(np.uint8)
                     out.write(f)
@@ -313,6 +381,7 @@ class Wav2LipProcessor:
             '-c:a', 'aac',
             '-map', '0:v:0',
             '-map', '1:a:0',
+            '-shortest',    # Ensure video is cut to audio length
             str(output_path)
         ]
         
@@ -325,4 +394,6 @@ class Wav2LipProcessor:
             return True
         except subprocess.CalledProcessError as e:
             print(f"Error merging audio: {e}")
+            if e.stderr:
+                print(f"Using FFmpeg stderr:\n{e.stderr.decode()}")
             return False
