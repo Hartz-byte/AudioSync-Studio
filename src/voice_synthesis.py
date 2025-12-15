@@ -8,26 +8,29 @@ import numpy as np
 from pathlib import Path
 
 class VoiceSynthesizer:
-    def __init__(self):
+    def __init__(self, engine="bark"):
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        self.synthesizer_type = "glow-tts"  # Default to GlowTTS for better quality
+        self.synthesizer_type = "glow-tts"
+        self.preferred_engine = engine
         self.setup_tts()
     
     def setup_tts(self):
         """Setup best available TTS engine"""
-        try:
-            # Method 1: Try Bark with improved settings
-            from bark import SAMPLE_RATE, generate_audio, preload_models
-            self.generate_audio = generate_audio
-            self.SAMPLE_RATE = SAMPLE_RATE
-            self.synthesizer_type = "bark"
-            print("✓ Bark TTS loaded (best quality)")
-            print("  Preloading models...")
-            preload_models()
-            print("  ✓ Models preloaded")
-            return
-        except ImportError as e:
-            print(f"Note: Bark not available ({e})")
+        # Method 1: Check Preference or Try Bark
+        if self.preferred_engine == "bark":
+            try:
+                # Method 1: Try Bark with improved settings
+                from bark import SAMPLE_RATE, generate_audio, preload_models
+                self.generate_audio = generate_audio
+                self.SAMPLE_RATE = SAMPLE_RATE
+                self.synthesizer_type = "bark"
+                print("✓ Bark TTS loaded (best quality)")
+                print("  Preloading models...")
+                preload_models()
+                print("  ✓ Models preloaded")
+                return
+            except ImportError as e:
+                print(f"Note: Bark not available ({e})")
         
         try:
             # Method 2: Try pyttsx3 as fallback (fast, local)
@@ -40,6 +43,9 @@ class VoiceSynthesizer:
             return
         except ImportError as e:
             print(f"Note: pyttsx3 not available ({e})")
+            
+        print("✗ No TTS engine available")
+        self.generate_audio = None
         
         print("✗ No TTS engine available")
         self.generate_audio = None

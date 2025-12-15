@@ -7,6 +7,15 @@ import os
 import sys
 from pathlib import Path
 
+import torch
+# Patch torch.load to default weights_only=False for legacy models (Bark, Wav2Lip)
+_original_load = torch.load
+def safe_load(*args, **kwargs):
+    if 'weights_only' not in kwargs:
+         kwargs['weights_only'] = False
+    return _original_load(*args, **kwargs)
+torch.load = safe_load
+
 sys.path.insert(0, str(Path(__file__).parent / 'src'))
 
 from audio_processor import AudioProcessor
@@ -23,11 +32,12 @@ def run_demo():
     audio_processor = AudioProcessor(sample_rate=16000)
     
     print("2️⃣  Initializing Voice Synthesizer...")
-    synthesizer = VoiceSynthesizer()
+    # Use pyttsx3 for cleaner audio to ensure lipsync works
+    synthesizer = VoiceSynthesizer(engine="pyttsx3")
     
     # Generate speech
     print("\n3️⃣  Generating Speech...")
-    demo_text = "Hello! Welcome to AudioSync Studio. This is a demonstration of AI-powered lip synchronization."
+    demo_text = "Hello! Welcome to AudioSync Studio. I am a demo of AI-powered lip synchronization."
     
     output_audio = os.path.join('data', 'sample_data', 'demo_speech.wav')
     audio_array = synthesizer.generate_speech(demo_text, output_audio, voice_quality="high")

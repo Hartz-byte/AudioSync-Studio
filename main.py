@@ -6,6 +6,15 @@ from pathlib import Path
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent / 'src'))
 
+import torch
+# Patch torch.load to default weights_only=False for legacy models (Bark, Wav2Lip)
+_original_load = torch.load
+def safe_load(*args, **kwargs):
+    if 'weights_only' not in kwargs:
+         kwargs['weights_only'] = False
+    return _original_load(*args, **kwargs)
+torch.load = safe_load
+
 from utils import check_gpu_availability, get_gpu_memory_info, create_directories, verify_model_files
 from audio_processor import AudioProcessor
 from voice_synthesis import VoiceSynthesizer
@@ -44,7 +53,7 @@ def run_setup_check(base_path):
     if not models_ready:
         print("\n⚠️  Some models are missing!")
         print("   Please download:")
-        print("   - Wav2Lip GAN: models/Wav2Lip/checkpoints/wav2lip_gan.pth")
+        print("   - Wav2Lip: models/Wav2Lip/checkpoints/wav2lip.pth")
         print("   - Face Detection: models/Wav2Lip/face_detection/detection/sfd/s3fd.pth")
     
     # 4. Test Audio Processing
@@ -75,7 +84,7 @@ def run_setup_check(base_path):
     print("\n6️⃣  Wav2Lip Processor")
     print("-" * 40)
     try:
-        checkpoint = str(base_path / 'models/Wav2Lip/checkpoints/wav2lip_gan.pth')
+        checkpoint = str(base_path / 'models/Wav2Lip/checkpoints/wav2lip.pth')
         if os.path.exists(checkpoint):
             processor = Wav2LipProcessor(checkpoint)
             print("✓ Wav2LipProcessor initialized")
@@ -105,7 +114,7 @@ def process_video_command(base_path):
     video_path = base_path / 'data' / 'input_video' / 'sample_face.mp4'
     audio_path = base_path / 'data' / 'sample_data' / 'demo_speech.wav'
     output_path = base_path / 'data' / 'output_video' / 'lip_synced_output.mp4'
-    checkpoint_path = base_path / 'models' / 'Wav2Lip' / 'checkpoints' / 'wav2lip_gan.pth'
+    checkpoint_path = base_path / 'models' / 'Wav2Lip' / 'checkpoints' / 'wav2lip.pth'
     
     # Validate input files
     print("Checking input files...")
@@ -159,7 +168,7 @@ def main():
         # Use custom paths if provided, otherwise use defaults
         if args.video and args.audio and args.output:
             print_header("🎬 AudioSync Studio - Custom Video Processing")
-            checkpoint_path = base_path / 'models' / 'Wav2Lip' / 'checkpoints' / 'wav2lip_gan.pth'
+            checkpoint_path = base_path / 'models' / 'Wav2Lip' / 'checkpoints' / 'wav2lip.pth'
             processor = Wav2LipProcessor(str(checkpoint_path))
             success = processor.process_video(args.video, args.audio, args.output)
             if success:

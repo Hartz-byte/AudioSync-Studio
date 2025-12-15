@@ -137,11 +137,14 @@ class Wav2LipProcessor:
         
         return boxes
 
-    def _datagen(self, frames, mels, faces_coords):
+    def _datagen(self, frames, mels, faces_coords, ref_face_unused):
         """
         Generator that yields batches for inference
         """
         img_batch, mel_batch, frame_batch, coords_batch = [], [], [], []
+        
+        # Pre-calculate all faces to avoid random access overhead/complexity
+        # (Optimization: could be lazy, but list is okay for short videos)
         
         # Loop through mels (audio chunks)
         # Wav2Lip logic: "idx = i % len(frames)" allows looping video if audio is longer
@@ -160,9 +163,16 @@ class Wav2LipProcessor:
             
             # Silence Handling: If mel chunk is quiet, force it to minimum value (closed mouth)
             # Wav2Lip normalized range is [-4, 4]. Silence is -4.
-            # Using threshold -3.5 to catch near-silence. 
-            if np.mean(m) < -3.5:
-                m[:] = -10.0 # Force deep silence
+            # Relaxed threshold to -3.8 to avoid            # Silence Handling
+            mel_mean = np.mean(m)
+            mel_max = np.max(m)
+            
+            # Logstats every 20 frames
+            if i % 20 == 0:
+                print(f"  Debug: Frame {i} Mel - Mean: {mel_mean:.2f}, Max: {mel_max:.2f}")
+
+            # Disable manual silence clamping - let the model decide
+            # if mel_mean < -3.8: m[:] = -10.0
                 
             img_batch.append(face)
             mel_batch.append(m)
@@ -174,9 +184,25 @@ class Wav2LipProcessor:
                 mel_batch = np.asarray(mel_batch)
 
                 img_masked = img_batch.copy()
-                img_masked[:, self.img_size//2:] = 0
+                # Explicitly zero bottom half using 4-dim slice just in case
+                img_masked[:, self.img_size//2:, :, :] = 0
+                
+                # Static Reference (Frame 0) to prevent flickering and ghosting
+                # Use ref_face (passed to function, or generate it here using frames[0])
+                # We need to ensure ref_face is available. 
+                # Let's simple use frames[0] again, assuming faces_coords matches.
+                
+                ref_batch = []
+                # Use Frame 0 for consistency
+                ref_frame = frames[0] 
+                rc = faces_coords[0]
+                rx1, ry1, rx2, ry2 = int(rc[0]), int(rc[1]), int(rc[2]), int(rc[3])
+                r_face = ref_frame[ry1:ry2, rx1:rx2]
+                r_face = cv2.resize(r_face, (self.img_size, self.img_size), interpolation=cv2.INTER_CUBIC)
+                
+                ref_batch = np.tile(r_face, (len(img_batch), 1, 1, 1))
 
-                img_batch = np.concatenate((img_masked, img_batch), axis=3) / 255.
+                img_batch = np.concatenate((img_masked, ref_batch), axis=3) / 255.
                 mel_batch = np.reshape(mel_batch, [len(mel_batch), mel_batch.shape[1], mel_batch.shape[2], 1])
 
                 yield img_batch, mel_batch, frame_batch, coords_batch
@@ -188,9 +214,18 @@ class Wav2LipProcessor:
             mel_batch = np.asarray(mel_batch)
 
             img_masked = img_batch.copy()
-            img_masked[:, self.img_size//2:] = 0
+            img_masked[:, self.img_size//2:, :, :] = 0
+            
+            # Static Reference (Frame 0)
+            ref_frame = frames[0] 
+            rc = faces_coords[0]
+            rx1, ry1, rx2, ry2 = int(rc[0]), int(rc[1]), int(rc[2]), int(rc[3])
+            r_face = ref_frame[ry1:ry2, rx1:rx2]
+            r_face = cv2.resize(r_face, (self.img_size, self.img_size), interpolation=cv2.INTER_CUBIC)
+            
+            ref_batch = np.tile(r_face, (len(img_batch), 1, 1, 1))
 
-            img_batch = np.concatenate((img_masked, img_batch), axis=3) / 255.
+            img_batch = np.concatenate((img_masked, ref_batch), axis=3) / 255.
             mel_batch = np.reshape(mel_batch, [len(mel_batch), mel_batch.shape[1], mel_batch.shape[2], 1])
 
             yield img_batch, mel_batch, frame_batch, coords_batch
@@ -275,6 +310,15 @@ class Wav2LipProcessor:
         print("  Processing audio...")
         try:
             wav = audio.load_wav(str(audio_path), 16000)
+            
+            # Normalize audio volume to ensure clear lipsync
+            # Weak audio leads to weak/closed mouth movements
+            if len(wav) > 0:
+                wav_max = np.max(np.abs(wav))
+                if wav_max < 0.9:
+                    print(f"  Audio too quiet (Peak: {wav_max:.2f}). Boosting to 0.95...")
+                    wav = wav / (wav_max + 1e-8) * 0.95
+            
             mel = audio.melspectrogram(wav)
         except Exception as e:
             print(f"Error processing audio: {e}")
@@ -303,6 +347,15 @@ class Wav2LipProcessor:
 
         # 4. Detect Faces (only for frames we need)
         faces_coords = self._face_detect(full_frames)
+        print(f"  ✓ Face coordinates ready for {len(faces_coords)} frames")
+        
+        # Prepare Static Reference (Frame 0) to force generation
+        # This prevents the model from "leaking" the original mouth movement from the reference.
+        # ref_img = full_frames[0].copy()
+        # ref_coords = faces_coords[0]
+        # rx1, ry1, rx2, ry2 = int(ref_coords[0]), int(ref_coords[1]), int(ref_coords[2]), int(ref_coords[3])
+        # ref_face = ref_img[ry1:ry2, rx1:rx2]
+        # ref_face = cv2.resize(ref_face, (self.img_size, self.img_size), interpolation=cv2.INTER_CUBIC)
         
         # 5. Output Writer setup
         frame_h, frame_w = full_frames[0].shape[:-1]
@@ -310,22 +363,21 @@ class Wav2LipProcessor:
         out = cv2.VideoWriter(temp_out, cv2.VideoWriter_fourcc(*'mp4v'), fps, (frame_w, frame_h))
 
         # 6. Inference Loop
-        gen = self._datagen(full_frames, mel_chunks, faces_coords)
+        gen = self._datagen(full_frames, mel_chunks, faces_coords, None)
         
         print("  Starting inference...")
         total_batches = int(np.ceil(float(len(mel_chunks))/self.batch_size))
         
-        # Pre-compute mask for soft blending
-        mask_template = np.zeros((self.img_size, self.img_size), dtype=np.float32)
-        # Create a soft circle/oval mask
-        # Widen the mask slightly and reduce blur to avoid ghosting
-        # Radius: (44, 40). Center shifted down by 8.
-        center = (self.img_size // 2, self.img_size // 2 + 8) 
-        cv2.ellipse(mask_template, center, (self.img_size // 2 - 4, self.img_size // 2 - 8), 0, 0, 360, 1, -1)
-        # Blur the mask to create soft edge (Sharpened to 7x7 from 15x15)
-        mask_template = cv2.GaussianBlur(mask_template, (7, 7), 0)
-        # Reshape for broadcasting: (H, W, 1)
-        mask_template = mask_template[..., np.newaxis]
+        # Updated Mask: Lower Half Only + Soft Blur
+        mask_template = np.ones((self.img_size, self.img_size), dtype=np.float32)
+        
+        # Top Half Black (Keep original eyes/nose)
+        mask_template[:self.img_size//2, :] = 0 
+        
+        # Soft Blur
+        mask_template = cv2.GaussianBlur(mask_template, (15, 15), 0)
+        mask_template = np.clip(mask_template, 0, 1) 
+        # Keep mask_template 2D
 
         for i, (img_batch, mel_batch, frames, coords) in enumerate(tqdm(gen, total=total_batches)):
             
@@ -337,23 +389,22 @@ class Wav2LipProcessor:
 
             pred = pred.cpu().numpy().transpose(0, 2, 3, 1) * 255.
             
-            for p, f, c in zip(pred, frames, coords):
+            for j, (p, f, c) in enumerate(zip(pred, frames, coords)):
                 x1, y1, x2, y2 = c
                 try:
                     # Resize prediction to match face rect
                     p_resized = cv2.resize(p.astype(np.uint8), (x2 - x1, y2 - y1), interpolation=cv2.INTER_CUBIC)
                     
-                    # Resize masking template to match face rect
+                    # Resize masking template (2D) to match face rect
                     mask_resized = cv2.resize(mask_template, (x2 - x1, y2 - y1), interpolation=cv2.INTER_CUBIC)
                     
-                    if len(mask_resized.shape) == 2:
-                        mask_resized = mask_resized[..., np.newaxis] 
+                    # Add channel dimension
+                    mask_resized = mask_resized[..., np.newaxis] 
 
                     # Original face region
                     original_face_region = f[y1:y2, x1:x2].astype(np.uint8)
                     
                     # Color Transfer: Match prediction to original face skin tone
-                    # This prevents the "grayish patch" look
                     p_corrected = self._linear_color_transfer(p_resized, original_face_region)
                     
                     p_corrected_float = p_corrected.astype(np.float32)
@@ -363,6 +414,10 @@ class Wav2LipProcessor:
                     blended = mask_resized * p_corrected_float + (1.0 - mask_resized) * original_float
                     
                     f[y1:y2, x1:x2] = blended.astype(np.uint8)
+                    
+                    # Debug Green Box Removed for final output
+                    # cv2.rectangle(f, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                    
                     out.write(f)
                 except Exception as e:
                     print(f"Error processing frame: {e}")
