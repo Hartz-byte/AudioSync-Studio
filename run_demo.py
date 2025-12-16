@@ -41,6 +41,21 @@ def run_demo():
     demo_text = "Hello Garima! Make me Manchurian and chicken fried rice."
     
     output_audio = os.path.join('data', 'sample_data', 'demo_speech.wav')
+    
+    # Archiving: If 'demo_speech.wav' exists, rename it to 'demo_speech_N.wav'
+    if os.path.exists(output_audio):
+        archive_counter = 1
+        while True:
+            archive_name = os.path.join('data', 'sample_data', f'demo_speech_{archive_counter}.wav')
+            if not os.path.exists(archive_name):
+                try:
+                    os.rename(output_audio, archive_name)
+                    print(f"  ℹ️ Archived previous audio to: {archive_name}")
+                except OSError as e:
+                    print(f"  ⚠️ Could not archive audio: {e}")
+                break
+            archive_counter += 1
+            
     audio_array = synthesizer.generate_speech(demo_text, output_audio, voice_quality="high")
     
     if audio_array is not None:
