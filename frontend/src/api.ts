@@ -23,8 +23,8 @@ export interface ProcessResponse {
 }
 
 export const api = {
-    generateAudio: async (text: string, voice: string = "pyttsx3") => {
-        const res = await axios.post<TTSResponse>(`${API_BASE}/api/tts`, { text, voice });
+    generateAudio: async (text: string, gender: string) => {
+        const res = await axios.post<TTSResponse>(`${API_BASE}/api/tts`, { text, gender });
         return res.data;
     },
 

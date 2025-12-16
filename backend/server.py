@@ -48,6 +48,7 @@ AUDIO_DIR.mkdir(parents=True, exist_ok=True)
 class TTSRequest(BaseModel):
     text: str
     voice: str = "pyttsx3"
+    gender: str = None # "male" or "female"
 
 @app.on_event("startup")
 async def startup_event():
@@ -78,7 +79,7 @@ async def generate_speech(req: TTSRequest):
         # We need to handle the fact that pyttsx3 might block the loop?
         # Running in threadpool is safer for sync operations
         loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, lambda: voice_synth.generate_speech(req.text, str(output_path)))
+        await loop.run_in_executor(None, lambda: voice_synth.generate_speech(req.text, str(output_path), gender=req.gender))
         
         if output_path.exists():
             return {

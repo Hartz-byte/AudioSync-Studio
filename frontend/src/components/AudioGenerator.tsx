@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { api } from '../api';
-import { Play, Loader2 } from 'lucide-react';
+import { Play, Loader2, User } from 'lucide-react';
 
 interface Props {
     onGenerated: (filename: string) => void;
@@ -10,6 +10,7 @@ export const AudioGenerator = ({ onGenerated }: Props) => {
     const [text, setText] = useState("Hello! Welcome to AudioSync Studio.");
     const [isLoading, setIsLoading] = useState(false);
     const [progress, setProgress] = useState(0);
+    const [gender, setGender] = useState<string | null>(null);
 
     React.useEffect(() => {
         let interval: any;
@@ -25,9 +26,10 @@ export const AudioGenerator = ({ onGenerated }: Props) => {
     }, [isLoading]);
 
     const handleGenerate = async () => {
+        if (!gender) return;
         setIsLoading(true);
         try {
-            const res = await api.generateAudio(text);
+            const res = await api.generateAudio(text, gender);
             // Pass filename to parent
             onGenerated(res.filename);
         } catch (e) {
@@ -40,7 +42,7 @@ export const AudioGenerator = ({ onGenerated }: Props) => {
     return (
         <div className="space-y-6">
             <div>
-                <label className="block text-sm font-medium text-slate-400 mb-2">Enter Text for Speech</label>
+                <label className="block text-sm font-medium text-slate-400 mb-2">1. Enter Text for Speech</label>
                 <textarea
                     value={text}
                     onChange={(e) => setText(e.target.value)}
@@ -49,11 +51,35 @@ export const AudioGenerator = ({ onGenerated }: Props) => {
                 />
             </div>
 
-            <div className="flex flex-col items-end gap-3">
+            <div>
+                <label className="block text-sm font-medium text-slate-400 mb-2">2. Select Voice Gender</label>
+                <div className="flex gap-4">
+                    <button
+                        onClick={() => setGender('male')}
+                        className={`flex-1 p-4 rounded-xl border flex items-center justify-center gap-3 transition-all ${gender === 'male'
+                            ? 'bg-blue-600/20 border-blue-500 text-blue-200 shadow-lg shadow-blue-900/20'
+                            : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-750 hover:border-slate-600'
+                            }`}
+                    >
+                        <User className="w-5 h-5" /> Male (David)
+                    </button>
+                    <button
+                        onClick={() => setGender('female')}
+                        className={`flex-1 p-4 rounded-xl border flex items-center justify-center gap-3 transition-all ${gender === 'female'
+                            ? 'bg-pink-600/20 border-pink-500 text-pink-200 shadow-lg shadow-pink-900/20'
+                            : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-750 hover:border-slate-600'
+                            }`}
+                    >
+                        <User className="w-5 h-5" /> Female (Zira)
+                    </button>
+                </div>
+            </div>
+
+            <div className="flex flex-col items-end gap-3 pt-4">
                 <button
                     onClick={handleGenerate}
-                    disabled={isLoading || !text.trim()}
-                    className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded-lg font-medium transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    disabled={isLoading || !text.trim() || !gender}
+                    className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded-lg font-medium transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-500"
                 >
                     {isLoading ? <Loader2 className="animate-spin w-4 h-4" /> : <Play className="w-4 h-4" />}
                     Generate Audio

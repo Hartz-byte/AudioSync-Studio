@@ -50,15 +50,16 @@ class VoiceSynthesizer:
         print("✗ No TTS engine available")
         self.generate_audio = None
     
-    def generate_speech(self, text, output_path=None, voice_quality="high"):
+    def generate_speech(self, text, output_path=None, voice_quality="high", gender=None):
         """
         Generate speech from text with quality options
         voice_quality: "low" (fast), "medium" (balanced), "high" (best)
+        gender: "male" or "female" (for pyttsx3)
         """
         if self.synthesizer_type == "bark":
             return self._generate_bark(text, output_path, voice_quality)
         elif self.synthesizer_type == "pyttsx3":
-            return self._generate_pyttsx3(text, output_path)
+            return self._generate_pyttsx3(text, output_path, gender)
         else:
             print("✗ No TTS engine available")
             return None
@@ -125,9 +126,29 @@ class VoiceSynthesizer:
         except Exception:
             return audio
     
-    def _generate_pyttsx3(self, text, output_path=None):
+    def _generate_pyttsx3(self, text, output_path=None, gender=None):
         """Generate speech using pyttsx3"""
         try:
+            # Set Voice based on gender
+            if gender:
+                voices = self.engine.getProperty('voices')
+                target = gender.lower()
+                found = False
+                for v in voices:
+                    name = v.name.lower()
+                    if target == 'female' and ('zira' in name or 'female' in name):
+                        self.engine.setProperty('voice', v.id)
+                        print(f"  ✓ Switched voice to: {v.name}")
+                        found = True
+                        break
+                    if target == 'male' and ('david' in name or 'male' in name):
+                        self.engine.setProperty('voice', v.id)
+                        print(f"  ✓ Switched voice to: {v.name}")
+                        found = True
+                        break
+                if not found:
+                    print(f"  ⚠️ Requested gender '{gender}' not found, using default.")
+
             if output_path:
                 self.engine.save_to_file(text, output_path)
                 self.engine.runAndWait()
