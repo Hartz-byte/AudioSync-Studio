@@ -376,20 +376,21 @@ class Wav2LipProcessor:
         mask_template = np.zeros((self.img_size, self.img_size), dtype=np.float32)
         
         # Define ROI (Region of Interest) for the mouth:
-        # Start from below eyes (approx 48) to near bottom, with side margins
-        # img_size = 96
-        # Top: 48 (Middle)
-        # Bottom: 96 - margin
-        # Left/Right: margin
-        margin = 8 
+        # Tighten margins to avoid over-smoothing large areas
+        margin = 6 
         top_start = self.img_size // 2 # 48
          
         mask_template[top_start: -margin, margin : -margin] = 1.0
         
-        # Heavy Blur to blend seamlessley
-        mask_template = cv2.GaussianBlur(mask_template, (21, 21), 0)
+        # Reduce blur radius to keep texture definition while hiding edges
+        mask_template = cv2.GaussianBlur(mask_template, (11, 11), 0)
         mask_template = np.clip(mask_template, 0, 1) 
         # Keep mask_template 2D
+        
+        # Sharpening Kernel (Mild)
+        sharpen_kernel = np.array([[0, -1, 0], 
+                                   [-1, 5, -1], 
+                                   [0, -1, 0]])
 
         for i, (img_batch, mel_batch, frames, coords) in enumerate(tqdm(gen, total=total_batches)):
             
@@ -404,8 +405,19 @@ class Wav2LipProcessor:
             for j, (p, f, c) in enumerate(zip(pred, frames, coords)):
                 x1, y1, x2, y2 = c
                 try:
-                    # Resize prediction to match face rect
                     p_resized = cv2.resize(p.astype(np.uint8), (x2 - x1, y2 - y1), interpolation=cv2.INTER_CUBIC)
+                    
+                    # Texture Synthesis (Fake Details) to fix "Smooth Mask"
+                    # 1. Add Gaussian Noise (Skin Grain) - Monochromatic (Luma only) to avoid colored speckles
+                    noise = np.random.randn(p_resized.shape[0], p_resized.shape[1], 1) * 4.0 
+                    p_noisy = p_resized.astype(np.float32) + noise
+                    p_noisy = np.clip(p_noisy, 0, 255).astype(np.uint8)
+                    
+                    # 2. Strong Sharpening
+                    sharpen_kernel_strong = np.array([[-1,-1,-1], 
+                                                      [-1, 9,-1], 
+                                                      [-1,-1,-1]])
+                    p_textured = cv2.filter2D(p_noisy, -1, sharpen_kernel_strong)
                     
                     # Resize masking template (2D) to match face rect
                     mask_resized = cv2.resize(mask_template, (x2 - x1, y2 - y1), interpolation=cv2.INTER_CUBIC)
@@ -417,7 +429,16 @@ class Wav2LipProcessor:
                     original_face_region = f[y1:y2, x1:x2].astype(np.uint8)
                     
                     # Color Transfer: Match prediction to original face skin tone
-                    p_corrected = self._linear_color_transfer(p_resized, original_face_region)
+                    p_corrected = self._linear_color_transfer(p_textured, original_face_region)
+                    
+                    # Saturation Boost (To fix "Gray" look)
+                    # Convert to HSV, boost S channel
+                    hsv = cv2.cvtColor(p_corrected, cv2.COLOR_BGR2HSV).astype(np.float32)
+                    hsv[..., 1] = hsv[..., 1] * 1.3 # Boost saturation by 30%
+                    hsv[..., 1] = np.clip(hsv[..., 1], 0, 255)
+                    p_corrected = cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2BGR)
+                    
+                    p_corrected_float = p_corrected.astype(np.float32)
                     
                     p_corrected_float = p_corrected.astype(np.float32)
                     original_float = original_face_region.astype(np.float32)

@@ -37,7 +37,8 @@ def run_demo():
     
     # Generate speech
     print("\n3️⃣  Generating Speech...")
-    demo_text = "Hello! Welcome to AudioSync Studio. I am a demo of AI-powered lip synchronization."
+    # demo_text = "Hello! Welcome to AudioSync Studio. I am a demo of AI-powered lip synchronization."
+    demo_text = "Hello Garima! Make me Manchurian and chicken fried rice."
     
     output_audio = os.path.join('data', 'sample_data', 'demo_speech.wav')
     audio_array = synthesizer.generate_speech(demo_text, output_audio, voice_quality="high")
