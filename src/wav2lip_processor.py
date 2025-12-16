@@ -278,10 +278,13 @@ class Wav2LipProcessor:
 
         print("  Converting video to 25fps for accurate sync...")
         temp_25fps = str(output_path).replace('.mp4', '_25fps_input.mp4')
+        print(f"  Converting video to 25fps (and downscaling to 720p for performance)...")
+        # Optimization: Downscale huge videos (e.g. 4K) to 720p to prevent GPU OOM/Freeze
+        # scale=-2:720 ensures width is even (divisible by 2) and height is 720.
         cmd_fps = [
             'ffmpeg', '-y', 
             '-i', str(video_path), 
-            '-r', '25', 
+            '-vf', 'scale=-2:720,fps=25', 
             temp_25fps
         ]
         subprocess.run(cmd_fps, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -465,7 +468,8 @@ class Wav2LipProcessor:
             'ffmpeg', '-y',
             '-i', temp_out,
             '-i', str(audio_path),
-            '-c:v', 'copy',
+            '-c:v', 'libx264',      # Force H.264 for browser compatibility
+            '-pix_fmt', 'yuv420p',  # Ensure YUV420P for broad compatibility
             '-c:a', 'aac',
             '-map', '0:v:0',
             '-map', '1:a:0',
