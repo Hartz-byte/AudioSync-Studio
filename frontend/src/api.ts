@@ -23,8 +23,22 @@ export interface ProcessResponse {
 }
 
 export const api = {
+    checkHealth: async () => {
+        try {
+            const res = await axios.get(`${API_BASE}/health`, { timeout: 2000 });
+            return res.status === 200;
+        } catch {
+            return false;
+        }
+    },
+
     generateAudio: async (text: string, gender: string) => {
         const res = await axios.post<TTSResponse>(`${API_BASE}/api/tts`, { text, gender });
+        return res.data;
+    },
+
+    generateScript: async (topic: string, tone: string = "professional") => {
+        const res = await axios.post<{ script: string }>(`${API_BASE}/api/generate-script`, { topic, tone });
         return res.data;
     },
 

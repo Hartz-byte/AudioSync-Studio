@@ -13,6 +13,25 @@ function App() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
   const [resultFilename, setResultFilename] = useState<string | null>(null);
+  const [isServerReady, setIsServerReady] = useState(false);
+
+  // Health Check Poll
+  React.useEffect(() => {
+    const check = async () => {
+      const ready = await api.checkHealth();
+      if (ready) setIsServerReady(true);
+    };
+    check();
+
+    const interval = setInterval(async () => {
+      const ready = await api.checkHealth();
+      if (ready) {
+        setIsServerReady(true);
+        clearInterval(interval);
+      }
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []); // Only on mount
 
   const handleAudioGenerated = (filename: string) => {
     setAudioFilename(filename);
@@ -24,6 +43,7 @@ function App() {
     setStep(3);
   };
 
+  // Progress Simulation
   React.useEffect(() => {
     let interval: any;
     if (isProcessing) {
@@ -32,7 +52,6 @@ function App() {
       interval = setInterval(() => {
         setProgress(prev => {
           if (prev >= 95) return 95;
-          // Logarithmic-ish slowdown
           const increment = prev < 50 ? 2 : prev < 80 ? 1 : 0.5;
           return Math.min(prev + increment, 95);
         });
@@ -57,6 +76,28 @@ function App() {
     }
   };
 
+  // SPLASH SCREEN (Server starting)
+  if (!isServerReady) {
+    return (
+      <div className="min-h-screen bg-slate-900 text-white flex flex-col items-center justify-center p-4">
+        <div className="text-center space-y-6 animate-pulse">
+          <div className="flex justify-center mb-4">
+            <Activity className="w-20 h-20 text-blue-500" />
+          </div>
+          <h1 className="text-5xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-emerald-400">
+            AudioSync Studio
+          </h1>
+          <p className="text-slate-400 text-xl">AI-Powered Lip Synchronization</p>
+          <div className="mt-8 flex items-center justify-center gap-3 text-slate-500">
+            <Loader2 className="animate-spin w-5 h-5" />
+            <span>Server is starting... (Loading AI Models)</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // MAIN APP
   return (
     <div className="min-h-screen bg-slate-900 text-white flex flex-col items-center py-10 px-4">
       <header className="mb-10 text-center">

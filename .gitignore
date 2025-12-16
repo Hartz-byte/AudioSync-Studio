@@ -2,3 +2,4 @@ venv
 models/Wav2Lip/checkpoints/wav2lip_gan.pth
 models/Wav2Lip/checkpoints/wav2lip.pth
 frontend/node_modules
+.env

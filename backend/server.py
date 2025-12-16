@@ -3,7 +3,7 @@ import os
 import sys
 import shutil
 from pathlib import Path
-from fastapi import FastAPI, UploadFile, File, Form, BackgroundTasks
+from fastapi import FastAPI, UploadFile, File, Form, BackgroundTasks, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -11,6 +11,8 @@ import torch
 import uvicorn
 import asyncio
 import uuid
+from dotenv import load_dotenv
+import google.generativeai as genai
 
 # Add root directory to sys.path to import src modules
 sys.path.append(str(Path(__file__).parent.parent))
@@ -28,6 +30,17 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Global from dotenv import load_dotenv
+# import google.generativeai as genai
+
+load_dotenv()
+GEMINI_KEY = os.getenv("GEMINI_API_KEY")
+
+if GEMINI_KEY:
+    genai.configure(api_key=GEMINI_KEY)
+else:
+    print("⚠️ Warning: GEMINI_API_KEY not found in .env")
 
 # Global instances
 voice_synth = None
@@ -50,6 +63,10 @@ class TTSRequest(BaseModel):
     voice: str = "pyttsx3"
     gender: str = None # "male" or "female"
 
+class ScriptRequest(BaseModel):
+    topic: str
+    tone: str = "professional"
+
 @app.on_event("startup")
 async def startup_event():
     global voice_synth, wav2lip_proc
@@ -67,6 +84,11 @@ async def startup_event():
         
     wav2lip_proc = Wav2LipProcessor(checkpoint_path=str(CHECKPOINT_PATH))
     print("✅ System Ready!")
+
+@app.get("/health")
+async def health_check():
+    """Health Check for Frontend Polling"""
+    return {"status": "ok", "ready": True}
 
 @app.post("/api/tts")
 async def generate_speech(req: TTSRequest):
@@ -93,6 +115,24 @@ async def generate_speech(req: TTSRequest):
             
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
+
+@app.post("/api/generate-script")
+async def generate_script_api(req: ScriptRequest):
+    if not GEMINI_KEY:
+        raise HTTPException(status_code=500, detail="Gemini API Key not configured")
+    try:
+        # Use available model from user list
+        model = genai.GenerativeModel('gemini-2.0-flash')
+        prompt = f"Write a very short, concise, and engaging script (approx 20-30 words) for a video avatar. Topic: {req.topic}. Tone: {req.tone}. Output only the raw text for speech."
+        
+        # Run blocking GenAI call in threadpool
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(None, lambda: model.generate_content(prompt))
+        
+        return {"script": response.text}
+    except Exception as e:
+        print(f"GenAI Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/upload")
 async def upload_video(file: UploadFile = File(...)):
@@ -153,6 +193,10 @@ async def process_video(
     except Exception as e:
         print(f"Error: {e}")
         return JSONResponse(status_code=500, content={"error": str(e)})
+
+@app.get("/api/health")
+async def health_check():
+    return {"status": "ok", "model_loaded": wav2lip_proc is not None}
 
 # Static File Serving
 from fastapi.staticfiles import StaticFiles
