@@ -51,10 +51,12 @@ export const api = {
         return res.data;
     },
 
-    processVideo: async (videoFilename: string, audioFilename: string) => {
+    processVideo: async (videoFilename: string, audioFilename: string, enhanceFace: boolean = false) => {
         const formData = new FormData();
         formData.append('video_filename', videoFilename);
         formData.append('audio_filename', audioFilename);
+        formData.append('enhance_face', enhanceFace.toString());
+
         const res = await axios.post<ProcessResponse>(`${API_BASE}/api/process`, formData);
         return res.data;
     }

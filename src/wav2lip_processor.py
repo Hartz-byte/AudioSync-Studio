@@ -11,6 +11,7 @@ import numpy as np
 import subprocess
 from pathlib import Path
 from tqdm import tqdm
+import librosa
 
 # Add Wav2Lip to path
 WAV2LIP_ROOT = Path(__file__).parent.parent / 'models' / 'Wav2Lip'
@@ -35,7 +36,7 @@ class Wav2LipProcessor:
         self.model = None
         self.img_size = 96
         self.batch_size = 16  # Batch size for inference
-        self.face_det_batch_size = 16
+        self.base_dir = str(Path(__file__).parent.parent)
         
         # Default padding from Wav2Lip inference.py [top, bottom, left, right]
         # (0, 10, 0, 0)
@@ -43,6 +44,7 @@ class Wav2LipProcessor:
         
         print(f"✓ Processor initialized (device: {self.device})")
         
+        self.restorer = None # Initialize for GFPGAN
         self._load_model()
     
     def _load_model(self):
@@ -60,6 +62,52 @@ class Wav2LipProcessor:
         self.model.eval()
         print("✓ Wav2Lip model loaded and ready")
 
+    def load_gfpgan(self):
+        """Lazy load GFPGAN to save resources if not used"""
+        if hasattr(self, 'restorer') and self.restorer:
+             return
+
+        print("🔹 Initializing GFPGAN...")
+        try:
+            # Fix for basicsr/torchvision incompatibility
+            import torchvision
+            if not hasattr(torchvision.transforms, 'functional_tensor'):
+                try:
+                    import torchvision.transforms.functional as F
+                    sys.modules["torchvision.transforms.functional_tensor"] = F
+                except ImportError:
+                    pass
+
+            from gfpgan import GFPGANer
+            import requests
+            
+            # Model Path
+            model_name = 'GFPGANv1.4.pth'
+            model_path = os.path.join(self.base_dir, 'models', model_name)
+            
+            # Download if missing
+            if not os.path.exists(model_path):
+                print(f"  Downloading {model_name}...")
+                url = 'https://github.com/TencentARC/GFPGAN/releases/download/v1.3.0/GFPGANv1.4.pth'
+                with requests.get(url, stream=True) as response:
+                     with open(model_path, 'wb') as f:
+                        for chunk in response.iter_content(chunk_size=1024):
+                            if chunk: f.write(chunk)
+                print("  ✓ Download complete")
+
+            self.restorer = GFPGANer(
+                model_path=model_path,
+                upscale=1,
+                arch='clean',
+                channel_multiplier=2,
+                bg_upsampler=None,
+                device=self.device
+            )
+            print("✓ GFPGAN Initialized")
+        except Exception as e:
+            print(f"✗ GFPGAN Init Error: {e}")
+            self.restorer = None
+
     def _get_smoothened_boxes(self, boxes, T=5):
         """Smooth face bounding boxes over time"""
         for i in range(len(boxes)):
@@ -69,7 +117,7 @@ class Wav2LipProcessor:
                 window = boxes[i : i + T]
             boxes[i] = np.mean(window, axis=0)
         return boxes
-
+    
     def _face_detect(self, images):
         """
         Detect faces in a list of images (frames).
@@ -143,9 +191,6 @@ class Wav2LipProcessor:
         """
         img_batch, mel_batch, frame_batch, coords_batch = [], [], [], []
         
-        # Pre-calculate all faces to avoid random access overhead/complexity
-        # (Optimization: could be lazy, but list is okay for short videos)
-        
         # Loop through mels (audio chunks)
         # Wav2Lip logic: "idx = i % len(frames)" allows looping video if audio is longer
         for i, m in enumerate(mels):
@@ -161,9 +206,7 @@ class Wav2LipProcessor:
             # Resize with high quality
             face = cv2.resize(face, (self.img_size, self.img_size), interpolation=cv2.INTER_CUBIC)
             
-            # Silence Handling: If mel chunk is quiet, force it to minimum value (closed mouth)
-            # Wav2Lip normalized range is [-4, 4]. Silence is -4.
-            # Relaxed threshold to -3.8 to avoid            # Silence Handling
+            # Silence Handling
             mel_mean = np.mean(m)
             mel_max = np.max(m)
             
@@ -171,9 +214,6 @@ class Wav2LipProcessor:
             if i % 20 == 0:
                 print(f"  Debug: Frame {i} Mel - Mean: {mel_mean:.2f}, Max: {mel_max:.2f}")
 
-            # Disable manual silence clamping - let the model decide
-            # if mel_mean < -3.8: m[:] = -10.0
-                
             img_batch.append(face)
             mel_batch.append(m)
             frame_batch.append(frame_to_save)
@@ -187,11 +227,7 @@ class Wav2LipProcessor:
                 # Explicitly zero bottom half using 4-dim slice just in case
                 img_masked[:, self.img_size//2:, :, :] = 0
                 
-                # Static Reference (Frame 0) to prevent flickering and ghosting
-                # Use ref_face (passed to function, or generate it here using frames[0])
-                # We need to ensure ref_face is available. 
-                # Let's simple use frames[0] again, assuming faces_coords matches.
-                
+                # Static Reference (Frame 0)
                 ref_batch = []
                 # Use Frame 0 for consistency
                 ref_frame = frames[0] 
@@ -234,8 +270,6 @@ class Wav2LipProcessor:
         """
         Match the color distribution of the target image to the source image
         using Reinhard's method (Mean/Std transfer).
-        target_img: The generated mouth (to be corrected), BGR, uint8
-        source_img: The original face patch (reference), BGR, uint8
         """
         # Convert to LAB color space
         target_lab = cv2.cvtColor(target_img, cv2.COLOR_BGR2LAB).astype("float32")
@@ -250,17 +284,19 @@ class Wav2LipProcessor:
         s_std = np.clip(s_std, 1e-5, None)
         
         # Transfer
-        # (Target - Mean) * (Std_Source / Std_Target) + Mean_Source
         target_lab = (target_lab - t_mean) * (s_std / t_std) + s_mean
         
         # Clip and convert back
         target_lab = np.clip(target_lab, 0, 255).astype("uint8")
         return cv2.cvtColor(target_lab, cv2.COLOR_LAB2BGR)
 
-    def process_video(self, video_path, audio_path, output_path):
+    def process_video(self, video_path, audio_path, output_path, enhance_face=False):
         print(f"\n🎬 AudioSync Studio - Corrected Processing Pipeline")
         print(f"   Video: {video_path}")
         print(f"   Audio: {audio_path}")
+        
+        if enhance_face:
+            self.load_gfpgan()
         
         # 1. Load Video & Convert to 25FPS (Standard for Wav2Lip)
         if not os.path.isfile(video_path):
@@ -319,7 +355,6 @@ class Wav2LipProcessor:
             wav = audio.load_wav(str(audio_path), 16000)
             
             # Normalize audio volume to ensure clear lipsync
-            # Weak audio leads to weak/closed mouth movements
             if len(wav) > 0:
                 wav_max = np.max(np.abs(wav))
                 if wav_max < 0.9:
@@ -356,14 +391,6 @@ class Wav2LipProcessor:
         faces_coords = self._face_detect(full_frames)
         print(f"  ✓ Face coordinates ready for {len(faces_coords)} frames")
         
-        # Prepare Static Reference (Frame 0) to force generation
-        # This prevents the model from "leaking" the original mouth movement from the reference.
-        # ref_img = full_frames[0].copy()
-        # ref_coords = faces_coords[0]
-        # rx1, ry1, rx2, ry2 = int(ref_coords[0]), int(ref_coords[1]), int(ref_coords[2]), int(ref_coords[3])
-        # ref_face = ref_img[ry1:ry2, rx1:rx2]
-        # ref_face = cv2.resize(ref_face, (self.img_size, self.img_size), interpolation=cv2.INTER_CUBIC)
-        
         # 5. Output Writer setup
         frame_h, frame_w = full_frames[0].shape[:-1]
         temp_out = str(output_path).replace('.mp4', '_temp.mp4')
@@ -377,23 +404,15 @@ class Wav2LipProcessor:
         
         # Updated Mask: Soft Mouth Area Only
         mask_template = np.zeros((self.img_size, self.img_size), dtype=np.float32)
-        
-        # Define ROI (Region of Interest) for the mouth:
-        # Tighten margins to avoid over-smoothing large areas
         margin = 6 
-        top_start = self.img_size // 2 # 48
-         
+        top_start = self.img_size // 2 
         mask_template[top_start: -margin, margin : -margin] = 1.0
-        
-        # Reduce blur radius to keep texture definition while hiding edges
         mask_template = cv2.GaussianBlur(mask_template, (11, 11), 0)
         mask_template = np.clip(mask_template, 0, 1) 
-        # Keep mask_template 2D
-        
+        mask_template = mask_template[..., np.newaxis] # 3D
+
         # Sharpening Kernel (Mild)
-        sharpen_kernel = np.array([[0, -1, 0], 
-                                   [-1, 5, -1], 
-                                   [0, -1, 0]])
+        sharpen_kernel = np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]])
 
         for i, (img_batch, mel_batch, frames, coords) in enumerate(tqdm(gen, total=total_batches)):
             
@@ -408,52 +427,52 @@ class Wav2LipProcessor:
             for j, (p, f, c) in enumerate(zip(pred, frames, coords)):
                 x1, y1, x2, y2 = c
                 try:
+                    # 1. Resize Prediction to match Face Box
                     p_resized = cv2.resize(p.astype(np.uint8), (x2 - x1, y2 - y1), interpolation=cv2.INTER_CUBIC)
                     
-                    # Texture Synthesis (Fake Details) to fix "Smooth Mask"
-                    # 1. Add Gaussian Noise (Skin Grain) - Monochromatic (Luma only) to avoid colored speckles
+                    # 2. Resized Mask
+                    mask_resized = cv2.resize(mask_template, (x2 - x1, y2 - y1), interpolation=cv2.INTER_CUBIC)
+                    mask_resized = mask_resized[..., np.newaxis]
+
+                    # 3. Texture Synthesis (Noise + Sharpen)
+                    # Gaussian Noise
                     noise = np.random.randn(p_resized.shape[0], p_resized.shape[1], 1) * 4.0 
                     p_noisy = p_resized.astype(np.float32) + noise
                     p_noisy = np.clip(p_noisy, 0, 255).astype(np.uint8)
-                    
-                    # 2. Strong Sharpening
-                    sharpen_kernel_strong = np.array([[-1,-1,-1], 
-                                                      [-1, 9,-1], 
-                                                      [-1,-1,-1]])
-                    p_textured = cv2.filter2D(p_noisy, -1, sharpen_kernel_strong)
-                    
-                    # Resize masking template (2D) to match face rect
-                    mask_resized = cv2.resize(mask_template, (x2 - x1, y2 - y1), interpolation=cv2.INTER_CUBIC)
-                    
-                    # Add channel dimension
-                    mask_resized = mask_resized[..., np.newaxis] 
+                    # Sharpen
+                    p_textured = cv2.filter2D(p_noisy, -1, sharpen_kernel)
 
-                    # Original face region
+                    # 4. Color Correction (Match original skin tone)
                     original_face_region = f[y1:y2, x1:x2].astype(np.uint8)
-                    
-                    # Color Transfer: Match prediction to original face skin tone
                     p_corrected = self._linear_color_transfer(p_textured, original_face_region)
-                    
-                    # Saturation Boost (To fix "Gray" look)
-                    # Convert to HSV, boost S channel
+
+                    # 5. Saturation Boost
                     hsv = cv2.cvtColor(p_corrected, cv2.COLOR_BGR2HSV).astype(np.float32)
-                    hsv[..., 1] = hsv[..., 1] * 1.3 # Boost saturation by 30%
+                    hsv[..., 1] = hsv[..., 1] * 1.3
                     hsv[..., 1] = np.clip(hsv[..., 1], 0, 255)
-                    p_corrected = cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2BGR)
+                    p_final = cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2BGR)
                     
-                    p_corrected_float = p_corrected.astype(np.float32)
-                    
-                    p_corrected_float = p_corrected.astype(np.float32)
+                    # 6. Blending
+                    p_final_float = p_final.astype(np.float32)
                     original_float = original_face_region.astype(np.float32)
                     
-                    # Soft Blending: alpha * pred + (1-alpha) * original
-                    blended = mask_resized * p_corrected_float + (1.0 - mask_resized) * original_float
+                    blended = mask_resized * p_final_float + (1.0 - mask_resized) * original_float
                     
                     f[y1:y2, x1:x2] = blended.astype(np.uint8)
                     
-                    # Debug Green Box Removed for final output
-                    # cv2.rectangle(f, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                    
+                    # 7. GFPGAN Enhancement (Global on full frame)
+                    if enhance_face and self.restorer:
+                        try:
+                            # enhance() returns (cropped_face_list, restored_face_list, restored_img)
+                            _, _, f = self.restorer.enhance(
+                                f, 
+                                has_aligned=False, 
+                                only_center_face=True, 
+                                paste_back=True
+                            )
+                        except Exception as e:
+                            pass
+
                     out.write(f)
                 except Exception as e:
                     print(f"Error processing frame: {e}")
@@ -468,12 +487,12 @@ class Wav2LipProcessor:
             'ffmpeg', '-y',
             '-i', temp_out,
             '-i', str(audio_path),
-            '-c:v', 'libx264',      # Force H.264 for browser compatibility
-            '-pix_fmt', 'yuv420p',  # Ensure YUV420P for broad compatibility
+            '-c:v', 'libx264',      
+            '-pix_fmt', 'yuv420p',  
             '-c:a', 'aac',
             '-map', '0:v:0',
             '-map', '1:a:0',
-            '-shortest',    # Ensure video is cut to audio length
+            '-shortest',    
             str(output_path)
         ]
         

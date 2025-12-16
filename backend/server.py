@@ -154,7 +154,8 @@ async def upload_video(file: UploadFile = File(...)):
 @app.post("/api/process")
 async def process_video(
     video_filename: str = Form(...),
-    audio_filename: str = Form(...)
+    audio_filename: str = Form(...),
+    enhance_face: bool = Form(False)
 ):
     """Process Video + Audio"""
     try:
@@ -168,17 +169,13 @@ async def process_video(
         output_filename = f"output_{uuid.uuid4().hex[:8]}.mp4"
         output_path = OUTPUT_DIR / output_filename
         
-        print(f"🎬 Processing: {video_filename} + {audio_filename}")
+        print(f"🎬 Processing: {video_filename} + {audio_filename} (Enhance: {enhance_face})")
         
         # Run processing (blocking for now, can be background task)
-        # For better UX, we should return a task ID and process in background.
-        # But for MVP, simple blocking call works (with timeout risk).
-        # Let's run in threadpool.
-        
         loop = asyncio.get_event_loop()
         success = await loop.run_in_executor(
             None, 
-            lambda: wav2lip_proc.process_video(str(video_path), str(audio_path), str(output_path))
+            lambda: wav2lip_proc.process_video(str(video_path), str(audio_path), str(output_path), enhance_face=enhance_face)
         )
         
         if success is False: 

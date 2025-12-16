@@ -63,7 +63,11 @@ class VoiceSynthesizer:
         if self.synthesizer_type == "bark":
             return self._generate_bark(text, output_path, voice_quality)
         elif self.synthesizer_type == "edge-tts":
-            return self._generate_edge_tts(text, output_path, gender)
+            res = self._generate_edge_tts(text, output_path, gender)
+            if res is None:
+                print("⚠ Edge TTS failed (likely network issue). Falling back to pyttsx3...")
+                return self._generate_pyttsx3(text, output_path, gender)
+            return res
         elif self.synthesizer_type == "pyttsx3":
             return self._generate_pyttsx3(text, output_path, gender)
         else:
@@ -145,6 +149,13 @@ class VoiceSynthesizer:
     def _generate_pyttsx3(self, text, output_path=None, gender=None):
         """Generate speech using pyttsx3"""
         try:
+            # Lazy Init if falling back
+            if not hasattr(self, 'engine') or self.engine is None:
+                import pyttsx3
+                self.engine = pyttsx3.init()
+                self.engine.setProperty('rate', 150)
+                self.engine.setProperty('volume', 0.9)
+
             if gender:
                 voices = self.engine.getProperty('voices')
                 target = gender.lower()

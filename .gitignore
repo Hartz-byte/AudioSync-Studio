@@ -3,3 +3,17 @@ models/Wav2Lip/checkpoints/wav2lip_gan.pth
 models/Wav2Lip/checkpoints/wav2lip.pth
 frontend/node_modules
 .env
+models/GFPGANv1.4.pth
+gfpgan
+
+# Ignore all contents inside data subfolders
+data/input_video/*
+data/output_video/*
+data/sample_data/*
+data/uploads/*
+
+# But keep the folders themselves
+!data/input_video/.gitkeep
+!data/output_video/.gitkeep
+!data/sample_data/.gitkeep
+!data/uploads/.gitkeep

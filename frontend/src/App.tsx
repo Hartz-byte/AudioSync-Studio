@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { AudioGenerator } from './components/AudioGenerator';
 import { VideoUploader } from './components/VideoUploader';
 import { ResultViewer } from './components/ResultViewer';
-import { Activity, CheckCircle, Music, Video, Wand2, Loader2 } from 'lucide-react';
+import { Activity, CheckCircle, Music, Video, Wand2, Loader2, Sparkles } from 'lucide-react';
 import { api } from './api';
 
 function App() {
@@ -14,6 +14,9 @@ function App() {
   const [progress, setProgress] = useState(0);
   const [resultFilename, setResultFilename] = useState<string | null>(null);
   const [isServerReady, setIsServerReady] = useState(false);
+
+  // New Feature: Enhance Face
+  const [enhanceFace, setEnhanceFace] = useState(false);
 
   // Health Check Poll
   React.useEffect(() => {
@@ -48,25 +51,26 @@ function App() {
     let interval: any;
     if (isProcessing) {
       setProgress(0);
-      // Simulate progress: Reach 90% in approx 60 seconds
+      // Simulate progress: Reach 95% in approx 60 seconds (slower if enhanceFace is on?)
+      const speed = enhanceFace ? 1500 : 800; // Slower progress if enhancing
       interval = setInterval(() => {
         setProgress(prev => {
-          if (prev >= 95) return 95;
-          const increment = prev < 50 ? 2 : prev < 80 ? 1 : 0.5;
-          return Math.min(prev + increment, 95);
+          if (prev >= 98) return 98;
+          const increment = prev < 50 ? 2 : prev < 80 ? 1 : 0.2;
+          return Math.min(prev + increment, 98);
         });
-      }, 800);
+      }, speed);
     } else {
       setProgress(100);
     }
     return () => clearInterval(interval);
-  }, [isProcessing]);
+  }, [isProcessing, enhanceFace]);
 
   const handleProcess = async () => {
     if (!audioFilename || !videoFilename) return;
     setIsProcessing(true);
     try {
-      const res = await api.processVideo(videoFilename, audioFilename);
+      const res = await api.processVideo(videoFilename, audioFilename, enhanceFace);
       setResultFilename(res.output_url); // URL from backend
       setStep(4);
     } catch (e) {
@@ -147,6 +151,26 @@ function App() {
                 </div>
               </div>
 
+              {/* Enhance Face Toggle */}
+              <div
+                onClick={() => setEnhanceFace(!enhanceFace)}
+                className={`mb-8 p-4 rounded-xl border flex items-center gap-4 cursor-pointer transition-all ${enhanceFace
+                    ? 'bg-purple-900/30 border-purple-500 shadow-lg shadow-purple-900/20'
+                    : 'bg-slate-900 border-slate-700 hover:border-slate-600'
+                  }`}
+              >
+                <div className={`w-12 h-6 rounded-full p-1 transition-colors ${enhanceFace ? 'bg-purple-500' : 'bg-slate-700'}`}>
+                  <div className={`w-4 h-4 rounded-full bg-white transition-transform ${enhanceFace ? 'translate-x-6' : 'translate-x-0'}`} />
+                </div>
+                <div className="text-left">
+                  <p className={`font-medium ${enhanceFace ? 'text-purple-300' : 'text-slate-300'}`}>
+                    <Sparkles className="w-4 h-4 inline mr-2" />
+                    GFPGAN Face Restoration
+                  </p>
+                  <p className="text-xs text-slate-500">Significantly improves lip quality but 5x slower.</p>
+                </div>
+              </div>
+
               <button
                 onClick={handleProcess}
                 disabled={isProcessing}
@@ -176,7 +200,7 @@ function App() {
                       transition={{ duration: 0.5 }}
                     />
                   </div>
-                  <p className="text-xs text-slate-500 animate-pulse">This may take 1-2 minutes depending on GPU...</p>
+                  <p className="text-xs text-slate-500 animate-pulse">This may take {enhanceFace ? '3-5' : '1-2'} minutes depending on GPU...</p>
                 </div>
               )}
             </motion.div>
