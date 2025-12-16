@@ -300,6 +300,10 @@ class Wav2LipProcessor:
             full_frames.append(frame)
         video_stream.release()
         
+        # Cleanup temp file
+        if os.path.exists(temp_25fps):
+            os.remove(temp_25fps)
+        
         if not full_frames:
             print("Error: No frames read from video")
             return False
@@ -368,14 +372,22 @@ class Wav2LipProcessor:
         print("  Starting inference...")
         total_batches = int(np.ceil(float(len(mel_chunks))/self.batch_size))
         
-        # Updated Mask: Lower Half Only + Soft Blur
-        mask_template = np.ones((self.img_size, self.img_size), dtype=np.float32)
+        # Updated Mask: Soft Mouth Area Only
+        mask_template = np.zeros((self.img_size, self.img_size), dtype=np.float32)
         
-        # Top Half Black (Keep original eyes/nose)
-        mask_template[:self.img_size//2, :] = 0 
+        # Define ROI (Region of Interest) for the mouth:
+        # Start from below eyes (approx 48) to near bottom, with side margins
+        # img_size = 96
+        # Top: 48 (Middle)
+        # Bottom: 96 - margin
+        # Left/Right: margin
+        margin = 8 
+        top_start = self.img_size // 2 # 48
+         
+        mask_template[top_start: -margin, margin : -margin] = 1.0
         
-        # Soft Blur
-        mask_template = cv2.GaussianBlur(mask_template, (15, 15), 0)
+        # Heavy Blur to blend seamlessley
+        mask_template = cv2.GaussianBlur(mask_template, (21, 21), 0)
         mask_template = np.clip(mask_template, 0, 1) 
         # Keep mask_template 2D
 

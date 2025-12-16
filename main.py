@@ -113,7 +113,15 @@ def process_video_command(base_path):
     # Define paths
     video_path = base_path / 'data' / 'input_video' / 'sample_face.mp4'
     audio_path = base_path / 'data' / 'sample_data' / 'demo_speech.wav'
-    output_path = base_path / 'data' / 'output_video' / 'lip_synced_output.mp4'
+    base_output = base_path / 'data' / 'output_video' / 'lip_synced_output.mp4'
+    
+    # Versioning: Find unique output name
+    counter = 1
+    output_path = base_output
+    while output_path.exists():
+        output_path = base_output.parent / f"{base_output.stem}_{counter}{base_output.suffix}"
+        counter += 1
+        
     checkpoint_path = base_path / 'models' / 'Wav2Lip' / 'checkpoints' / 'wav2lip.pth'
     
     # Validate input files
