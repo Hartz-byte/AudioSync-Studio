@@ -21,7 +21,9 @@ jobs:
     - name: Install Dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install httpx pytest fastapi uvicorn python-multipart
+        pip install httpx pytest fastapi uvicorn python-multipart python-dotenv google-generativeai
+        # Install CPU version of torch for tests (fast)
+        pip install torch --index-url https://download.pytorch.org/whl/cpu
         # We don't install full requirements.txt because it has heavy torch/cuda
         # We rely on mocks in our tests
         
