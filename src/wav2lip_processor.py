@@ -211,8 +211,8 @@ class Wav2LipProcessor:
             mel_max = np.max(m)
             
             # Logstats every 20 frames
-            if i % 20 == 0:
-                print(f"  Debug: Frame {i} Mel - Mean: {mel_mean:.2f}, Max: {mel_max:.2f}")
+            # if i % 20 == 0:
+            #     print(f"  Debug: Frame {i} Mel - Mean: {mel_mean:.2f}, Max: {mel_max:.2f}")
 
             img_batch.append(face)
             mel_batch.append(m)
@@ -399,7 +399,7 @@ class Wav2LipProcessor:
         # 6. Inference Loop
         gen = self._datagen(full_frames, mel_chunks, faces_coords, None)
         
-        print("  Starting inference...")
+        # print("  Starting inference...")
         total_batches = int(np.ceil(float(len(mel_chunks))/self.batch_size))
         
         # Updated Mask: Soft Mouth Area Only

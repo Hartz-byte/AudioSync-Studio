@@ -116,6 +116,63 @@ async def generate_speech(req: TTSRequest):
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
 
+@app.post("/api/tts-clone")
+async def generate_tts_clone(
+    text: str = Form(...),
+    voice_sample: UploadFile = File(...)
+):
+    """Generate cloned audio from text and reference voice"""
+    try:
+        if not voice_sample:
+            return JSONResponse(status_code=400, content={"error": "No voice sample provided"})
+
+        filename = f"speech_cloned_{uuid.uuid4().hex[:8]}.wav"
+        output_path = AUDIO_DIR / filename
+        
+        # Save temp reference
+        temp_ref = AUDIO_DIR / f"temp_ref_{uuid.uuid4().hex}.wav"
+        with open(temp_ref, "wb") as f:
+            content = await voice_sample.read()
+            f.write(content)
+            
+        print(f"🎬 Cloning Voice. Ref: {voice_sample.filename} -> {temp_ref}")
+        
+        # Run XTTS
+        # Note: generate_speech is sync, so we run in executor
+        loop = asyncio.get_event_loop()
+        
+        # We pass gender=temp_ref path, and engine="xtts"
+        # voice_synth must be initialized
+        if not voice_synth:
+             return JSONResponse(status_code=500, content={"error": "Synthesizer not initialized"})
+
+        await loop.run_in_executor(None, lambda: voice_synth.generate_speech(
+            text, 
+            str(output_path), 
+            gender=str(temp_ref), 
+            engine="xtts"
+        ))
+        
+        # Cleanup
+        if temp_ref.exists():
+            try:
+                os.remove(temp_ref)
+            except: pass
+            
+        if output_path.exists():
+            return {
+                "status": "success", 
+                "audio_url": f"/files/sample_data/{filename}",
+                "filename": filename,
+                "path": str(output_path)
+            }
+        else:
+            return JSONResponse(status_code=500, content={"error": "XTTS generation failed (no output)"})
+
+    except Exception as e:
+        print(f"XTTS Error: {e}")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
 @app.post("/api/generate-script")
 async def generate_script_api(req: ScriptRequest):
     if not GEMINI_KEY:

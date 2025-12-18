@@ -42,6 +42,14 @@ export const api = {
         return res.data;
     },
 
+    cloneVoice: async (text: string, file: File) => {
+        const formData = new FormData();
+        formData.append('text', text);
+        formData.append('voice_sample', file);
+        const res = await axios.post<TTSResponse>(`${API_BASE}/api/tts-clone`, formData);
+        return res.data;
+    },
+
     uploadVideo: async (file: File) => {
         const formData = new FormData();
         formData.append('file', file);

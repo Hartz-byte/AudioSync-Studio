@@ -155,8 +155,8 @@ function App() {
               <div
                 onClick={() => setEnhanceFace(!enhanceFace)}
                 className={`mb-8 p-4 rounded-xl border flex items-center gap-4 cursor-pointer transition-all ${enhanceFace
-                    ? 'bg-purple-900/30 border-purple-500 shadow-lg shadow-purple-900/20'
-                    : 'bg-slate-900 border-slate-700 hover:border-slate-600'
+                  ? 'bg-purple-900/30 border-purple-500 shadow-lg shadow-purple-900/20'
+                  : 'bg-slate-900 border-slate-700 hover:border-slate-600'
                   }`}
               >
                 <div className={`w-12 h-6 rounded-full p-1 transition-colors ${enhanceFace ? 'bg-purple-500' : 'bg-slate-700'}`}>
@@ -218,6 +218,11 @@ function App() {
 
         </AnimatePresence>
       </main>
+
+      <footer className="mt-12 text-slate-500 text-sm flex flex-col items-center gap-1">
+        <p>© {new Date().getFullYear()} AudioSync Studio</p>
+        <p className="opacity-50">High-Performance GenAI Pipeline</p>
+      </footer>
     </div>
   );
 }

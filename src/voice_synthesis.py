@@ -7,6 +7,8 @@ import torch
 import numpy as np
 from pathlib import Path
 import asyncio
+import os
+import sys
 
 class VoiceSynthesizer:
     def __init__(self, engine="edge-tts"):
@@ -56,22 +58,76 @@ class VoiceSynthesizer:
         print("✗ No TTS engine available")
         self.generate_audio = None
     
-    def generate_speech(self, text, output_path=None, voice_quality="high", gender=None):
+    def generate_speech(self, text, output_path=None, voice_quality="high", gender=None, engine=None):
         """
         Generate speech from text
         """
-        if self.synthesizer_type == "bark":
+        active_engine = engine if engine else self.synthesizer_type
+
+        if active_engine == "bark":
             return self._generate_bark(text, output_path, voice_quality)
-        elif self.synthesizer_type == "edge-tts":
+        elif active_engine == "edge-tts":
             res = self._generate_edge_tts(text, output_path, gender)
             if res is None:
                 print("⚠ Edge TTS failed (likely network issue). Falling back to pyttsx3...")
                 return self._generate_pyttsx3(text, output_path, gender)
             return res
-        elif self.synthesizer_type == "pyttsx3":
+        elif active_engine == "pyttsx3":
             return self._generate_pyttsx3(text, output_path, gender)
+        elif active_engine == "xtts":
+             return self._generate_xtts(text, output_path, reference_wav=gender)
         else:
-            print("✗ No TTS engine available")
+            print(f"✗ No TTS engine available: {active_engine}")
+            return None
+
+    def setup_xtts(self):
+        if hasattr(self, 'xtts_model') and self.xtts_model: return
+        print("🔹 Loading XTTS Model... (First run downloads ~3GB)")
+        try:
+            # Monkeypatch torch.load to handle XTTS legacy checkpoints on PyTorch 2.6+
+            # XTTS checkpoints contain non-safe globals.
+            _original_load = torch.load
+            def _safe_load(*args, **kwargs):
+                if 'weights_only' not in kwargs:
+                    kwargs['weights_only'] = False
+                return _original_load(*args, **kwargs)
+            torch.load = _safe_load
+            
+            from TTS.api import TTS
+            # Force agree to license if needed (Coqui 0.22 might require it)
+            os.environ["COQUI_TOS_AGREED"] = "1"
+            
+            self.xtts_model = TTS("tts_models/multilingual/multi-dataset/xtts_v2").to(self.device)
+            print("✓ XTTS Loaded")
+            
+            # Restore torch.load (optional, but good practice)
+            torch.load = _original_load
+            
+        except Exception as e:
+            print(f"✗ Error loading XTTS: {e}")
+            self.xtts_model = None
+
+    def _generate_xtts(self, text, output_path, reference_wav):
+        if not hasattr(self, 'xtts_model') or not self.xtts_model:
+            self.setup_xtts()
+        
+        if not self.xtts_model: 
+            return None
+
+        try:
+            print(f"  Cloning voice from: {reference_wav}")
+            # Ensure text is not empty or too short
+            if not text.strip(): return None
+            
+            self.xtts_model.tts_to_file(
+                text=text, 
+                file_path=str(output_path), 
+                speaker_wav=str(reference_wav), 
+                language="en"
+            )
+            return output_path
+        except Exception as e:
+            print(f"Error in XTTS Generation: {e}")
             return None
     
     async def _generate_edge_tts_async(self, text, output_path, voice_name):
