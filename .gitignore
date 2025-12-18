@@ -17,3 +17,5 @@ data/uploads/*
 !data/output_video/.gitkeep
 !data/sample_data/.gitkeep
 !data/uploads/.gitkeep
+
+tts

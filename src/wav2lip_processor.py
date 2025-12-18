@@ -317,8 +317,10 @@ class Wav2LipProcessor:
         print(f"  Converting video to 25fps (and downscaling to 720p for performance)...")
         # Optimization: Downscale huge videos (e.g. 4K) to 720p to prevent GPU OOM/Freeze
         # scale=-2:720 ensures width is even (divisible by 2) and height is 720.
+        # Use system ffmpeg if available
+        ffmpeg_cmd = '/usr/bin/ffmpeg' if os.path.exists('/usr/bin/ffmpeg') else 'ffmpeg'
         cmd_fps = [
-            'ffmpeg', '-y', 
+            ffmpeg_cmd, '-y', 
             '-i', str(video_path), 
             '-vf', 'scale=-2:720,fps=25', 
             temp_25fps
@@ -483,11 +485,19 @@ class Wav2LipProcessor:
 
         # 7. Merge Audio
         print("  Merging audio...")
+        # Use system ffmpeg if available (to get libx264 support in Docker), otherwise PATH
+        ffmpeg_cmd = '/usr/bin/ffmpeg' if os.path.exists('/usr/bin/ffmpeg') else 'ffmpeg'
+        
+        # In Docker (system ffmpeg), usage of libx264 is supported. 
+        # In Conda (default ffmpeg), it often isn't.
+        # Safe default: 'libx264' if using /usr/bin/ffmpeg or local.
+        video_codec = 'libx264'
+        
         cmd = [
-            'ffmpeg', '-y',
+            ffmpeg_cmd, '-y',
             '-i', temp_out,
             '-i', str(audio_path),
-            '-c:v', 'libx264',      
+            '-c:v', video_codec,      
             '-pix_fmt', 'yuv420p',  
             '-c:a', 'aac',
             '-map', '0:v:0',

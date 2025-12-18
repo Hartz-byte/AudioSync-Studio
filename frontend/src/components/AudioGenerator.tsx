@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { api } from '../api';
-import { Play, Loader2, User, Sparkles, PenTool, Edit3, Mic } from 'lucide-react';
+import { Play, Loader2, User, Sparkles, Edit3, Mic } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface Props {

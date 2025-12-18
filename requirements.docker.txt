@@ -1,11 +1,10 @@
-# TO INSTALL
-#  pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
-#  pip install git+https://github.com/suno-ai/bark.git
-#  pip install huggingface_hub[hf_xet]
-
+# AudioSync Studio - Docker Requirements
+# Optimized for pytorch/pytorch:2.2.0-cuda11.8 base image
 
 # Core AI
-numpy==1.26.4
+# Torch is pre-installed in the base image.
+# Do NOT include torch here to avoid download/conflict.
+numpy
 scipy==1.13.0
 librosa==0.10.0
 soundfile==0.12.1
@@ -16,7 +15,7 @@ opencv-python>=4.9.0.80
 imageio==2.34.0
 imageio-ffmpeg==0.5.1
 Pillow==10.4.0
-tqdm==4.45.0
+tqdm
 
 # Backend
 fastapi==0.108.0
@@ -34,7 +33,7 @@ psutil==5.9.6
 # TTS Engines
 pyttsx3==2.90
 edge-tts
-TTS  # Coqui TTS
+
 transformers==4.38.2
 accelerate
 

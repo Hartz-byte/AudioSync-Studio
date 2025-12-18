@@ -1,0 +1,28 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+venv/
+.env
+
+# Dependencies
+node_modules/
+
+# Large Asset Directories (Mounted via volume instead)
+models/
+data/
+downloads/
+
+# Frontend Build
+frontend/dist
+frontend/node_modules
+
+# Docker
+docker-compose.yml
+Dockerfile
+backend.Dockerfile
+run_docker.ps1

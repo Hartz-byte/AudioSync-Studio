@@ -107,6 +107,17 @@ class VoiceSynthesizer:
             print(f"✗ Error loading XTTS: {e}")
             self.xtts_model = None
 
+    def trim_silence(self, output_path):
+        """Trim leading and trailing silence"""
+        try:
+            import librosa
+            import soundfile as sf
+            y, sr = librosa.load(output_path, sr=None)
+            yt, _ = librosa.effects.trim(y, top_db=20)
+            sf.write(output_path, yt, sr)
+        except Exception as e:
+            print(f"Warning: Silence trimming failed: {e}")
+
     def _generate_xtts(self, text, output_path, reference_wav):
         if not hasattr(self, 'xtts_model') or not self.xtts_model:
             self.setup_xtts()
@@ -119,12 +130,20 @@ class VoiceSynthesizer:
             # Ensure text is not empty or too short
             if not text.strip(): return None
             
+            # Using params to reduce hallucinations
             self.xtts_model.tts_to_file(
                 text=text, 
                 file_path=str(output_path), 
                 speaker_wav=str(reference_wav), 
-                language="en"
+                language="en",
+                split_sentences=True,
+                temperature=0.75,
+                repetition_penalty=2.0
             )
+            
+            # Trim Silence
+            self.trim_silence(output_path)
+            
             return output_path
         except Exception as e:
             print(f"Error in XTTS Generation: {e}")
@@ -161,6 +180,9 @@ class VoiceSynthesizer:
 
                 print(f"✓ Saved to {output_path}")
                 
+                # Trim Silence
+                self.trim_silence(output_path)
+
                  # Load back as numpy array to match return type expectation (optional)
                 import soundfile as sf
                 audio, sr = sf.read(output_path)
