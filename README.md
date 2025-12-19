@@ -24,16 +24,16 @@ AudioSync Studio is a full-stack web application that leverages state-of-the-art
 
 ```mermaid
 graph TD
-    User[User Client] -->|Port 80| Nginx[Nginx Reverse Proxy]
-    Nginx -->|/api| Backend[FastAPI Server :8000]
-    Nginx -->|/| Frontend[React App (Static)]
+    User["User Client"] -->|Port 80| Nginx["Nginx Reverse Proxy"]
+    Nginx -->|/api| Backend["FastAPI Server :8000"]
+    Nginx -->|/| Frontend["React App (Static)"]
     
     subgraph "Docker Container: Backend"
-        Backend -->|Script Gen| Gemini[Google Gemini API]
-        Backend -->|Voice Synth| TTS[EdgeTTS / XTTS v2]
-        Backend -->|Lip Sync| Wav2Lip[Wav2Lip Model]
-        Wav2Lip -->|Frame Enhance| GFPGAN[GFPGAN Restoration]
-        TTS -->|Persisted Models| Volume[/app/models/tts]
+        Backend -->|Script Gen| Gemini["Google Gemini API"]
+        Backend -->|Voice Synth| TTS["EdgeTTS / XTTS v2"]
+        Backend -->|Lip Sync| Wav2Lip["Wav2Lip Model"]
+        Wav2Lip -->|Frame Enhance| GFPGAN["GFPGAN Restoration"]
+        TTS -->|Persisted Models| Volume["/app/models/tts"]
     end
 ```
 
