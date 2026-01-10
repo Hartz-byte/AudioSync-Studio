@@ -128,4 +128,9 @@ If you prefer running without Docker:
 Distributed under the MIT License. See `LICENSE` for more information.
 
 ---
-*Created by [Your Name] for Portfolio Demonstration.*
+
+## ⭐️ Give it a Star
+
+If you found this repo helpful or interesting, please consider giving it a ⭐️. It motivates me to keep learning and sharing!
+
+---
