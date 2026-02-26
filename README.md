@@ -5,7 +5,6 @@ AudioSync Studio is a full-stack web application that leverages state-of-the-art
 
 ![Project Status](https://img.shields.io/badge/Status-Active-success)
 ![Docker](https://img.shields.io/badge/Docker-Enabled-blue)
-![CI/CD](https://github.com/yourusername/AudioSync-Studio/actions/workflows/ci.yml/badge.svg)
 ![Python](https://img.shields.io/badge/Python-3.10-blue)
 ![React](https://img.shields.io/badge/Frontend-React%20%2B%20Vite-blueviolet)
 ![FastAPI](https://img.shields.io/badge/Backend-FastAPI-teal)
