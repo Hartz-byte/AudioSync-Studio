@@ -1,4 +1,4 @@
-# AudioSync Studio 🎙️👄
+# AudioSync Studio
 > **A generic, AI-powered Video Lip-Sync & Voice Cloning Studio.**
 
 AudioSync Studio is a full-stack web application that leverages state-of-the-art Generative AI models to create realistic lip-sync videos. It combines **Wav2Lip** for lip synchronization, **GFPGAN** for face restoration, **EdgeTTS/XTTS** for voice synthesis/cloning, and **Google Gemini** for script generation into a seamless, user-friendly interface.
@@ -10,17 +10,17 @@ AudioSync Studio is a full-stack web application that leverages state-of-the-art
 ![React](https://img.shields.io/badge/Frontend-React%20%2B%20Vite-blueviolet)
 ![FastAPI](https://img.shields.io/badge/Backend-FastAPI-teal)
 
-## ✨ Key Features
+## Key Features
 
-*   **🎭 Audio-Driven Lip Sync**: Generates high-accuracy lip movements on any video face using `Wav2Lip`.
-*   **🗣️ Advanced Voice Synthesis**:
+*   ** Audio-Driven Lip Sync**: Generates high-accuracy lip movements on any video face using `Wav2Lip`.
+*   ** Advanced Voice Synthesis**:
     *   **Standard**: High-quality neural voices via EdgeTTS (Azure).
     *   **Voice Cloning**: Clone any voice from a 5-second sample using **Coqui XTTS v2** (with temperature control for hallucinations).
-*   **✨ Face Restoration**: Enhances output quality using `GFPGAN` to fix blurry faces in generated videos.
-*   **📝 AI Script Writer**: Integrated **Gemini AI** to auto-generate professional scripts for avatars.
-*   **⚡ Modern Architecture**: Dockerized microservices with FastAPI (Backend), React (Frontend), and Nginx (Proxy).
+*   ** Face Restoration**: Enhances output quality using `GFPGAN` to fix blurry faces in generated videos.
+*   ** AI Script Writer**: Integrated **Gemini AI** to auto-generate professional scripts for avatars.
+*   ** Modern Architecture**: Dockerized microservices with FastAPI (Backend), React (Frontend), and Nginx (Proxy).
 
-## 🏗️ System Architecture
+##  System Architecture
 
 ```mermaid
 graph TD
@@ -37,14 +37,14 @@ graph TD
     end
 ```
 
-## 🛠️ Tech Stack
+## Tech Stack
 
 *   **Frontend**: React (TypeScript), TailwindCSS, Framer Motion, Lucide Icons.
 *   **Backend**: Python, FastAPI, Uvicorn, Celery (Future).
 *   **AI/ML**: PyTorch (CUDA), Wav2Lip, GFPGAN, Coqui XTTS v2, Google Gemini.
 *   **DevOps**: Docker, Docker Compose, GitHub Actions (CI).
 
-## 🚀 Installation & Setup
+## Installation & Setup
 
 ### Prerequisites
 *   **Docker Desktop** (Recommended)
@@ -105,7 +105,7 @@ If you prefer running without Docker:
     uvicorn backend.server:app --reload --host 0.0.0.0
     ```
 
-## 🧠 Models Used
+## Models Used
 
 | Model | Purpose | Source |
 |-------|---------|--------|
@@ -115,7 +115,7 @@ If you prefer running without Docker:
 | **GFPGAN** | Face Restoration | Downloaded auto-magically on first use |
 | **Gemini Pro** | Script Writing | Google AI Studio API |
 
-## 🤝 Contributing
+## Contributing
 
 1.  Fork the repository
 2.  Create a feature branch (`git checkout -b feature/AmazingFeature`)
@@ -123,7 +123,7 @@ If you prefer running without Docker:
 4.  Push to the branch (`git push origin feature/AmazingFeature`)
 5.  Open a Pull Request
 
-## 📄 License
+## License
 
 Distributed under the MIT License. See `LICENSE` for more information.
 
